@@ -1,1 +1,5 @@
 streamlit
+gdown
+pandas
+openpyxl
+pyxlsb
