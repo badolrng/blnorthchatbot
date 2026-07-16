@@ -1,10 +1,14 @@
 import streamlit as st
+import gdown
+import pandas as pd
+import os
+import glob
 
 # --- পেজ কনফিগারেশন ---
 st.set_page_config(page_title="Banglalink KPI Dashboard", page_icon="📊", layout="wide")
 
 # --- সিকিউরিটি পিন সিস্টেম ---
-SECRET_PIN = "2026"  # আপনার টিমের জন্য এটি হলো লগইন পিন
+SECRET_PIN = "2026"  
 
 def check_password():
     def password_entered():
@@ -29,5 +33,41 @@ if check_password():
     # --- মূল ড্যাশবোর্ড ইন্টারফেস ---
     st.title("📊 ডেইলি পারফরম্যান্স ড্যাশবোর্ড (Rangpur Region)")
     st.markdown("---")
-    st.success("✅ লগইন সফল হয়েছে! সিস্টেমের বেসিক স্ট্রাকচার রেডি।")
-    st.info("📌 পরবর্তীতে এখানে আপনার গুগল ড্রাইভের ডেটা থেকে গ্রস অ্যাক্টিভেশন এবং CARE | CONNECT | CONVERT অ্যানালাইসিসের মূল চার্টগুলো আসবে।")
+    
+    # আপনার গুগল ড্রাইভ ফোল্ডার লিংক
+    FOLDER_URL = "https://drive.google.com/drive/folders/1LG3iyP3LUAnMXwlsh06yscJFABd-5s_n?usp=sharing"
+    
+    # স্মার্ট ক্যাশিং সিস্টেম (যেন বারবার ড্রাইভ থেকে ডাউনলোড না করে এবং স্পিড ফাস্ট থাকে)
+    @st.cache_data(ttl=3600)
+    def load_drive_files():
+        folder_name = "drive_data"
+        if not os.path.exists(folder_name):
+            os.makedirs(folder_name)
+            
+        try:
+            # ড্রাইভ থেকে ফোল্ডার ডাউনলোড
+            gdown.download_folder(FOLDER_URL, output=folder_name, quiet=True, use_cookies=False)
+            all_files = glob.glob(f"{folder_name}/*")
+            return all_files
+        except Exception as e:
+            return str(e)
+
+    st.info("🔄 গুগল ড্রাইভ থেকে ডেটা সিঙ্ক হচ্ছে... (প্রথমবার ৫-১০ সেকেন্ড সময় লাগতে পারে)")
+    
+    # ডেটা কানেকশন চেক
+    files = load_drive_files()
+    
+    if isinstance(files, str):
+        st.error(f"❌ ড্রাইভ কানেকশনে কোনো সমস্যা হয়েছে। এরর মেসেজ: {files}")
+    elif len(files) == 0:
+        st.warning("⚠️ আপনার গুগল ড্রাইভ ফোল্ডারটি খালি! দয়া করে কিছু এক্সেল রিপোর্ট আপলোড করুন।")
+    else:
+        st.success(f"✅ কানেকশন ১০০% সফল! গুগল ড্রাইভ থেকে {len(files)} টি রিপোর্ট ফাইল পাওয়া গেছে:")
+        
+        # ফোল্ডারের ফাইলের নামগুলো দেখাচ্ছে
+        for f in files:
+            file_name = os.path.basename(f)
+            st.write(f"📄 **{file_name}**")
+            
+        st.markdown("---")
+        st.success("🎉 পার্ট ২ কমপ্লিট! এখন শুধু গ্রস অ্যাক্টিভেশন এবং C2C ডেটা অ্যানালাইসিসের পালা।")
