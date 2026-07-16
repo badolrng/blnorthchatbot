@@ -28,7 +28,7 @@ def check_password():
     return True
 
 if check_password():
-    st.title("📊 ডিস্ট্রিবিউশনハウス KPI ড্যাশবোর্ড (Rangpur Region)")
+    st.title("📊 ডিস্ট্রিবিউশন হাউস KPI ড্যাশবোর্ড (Rangpur Region)")
     st.markdown("---")
     
     FOLDER_URL = "https://drive.google.com/drive/folders/1LG3iyP3LUAnMXwlsh06yscJFABd-5s_n?usp=sharing"
@@ -56,7 +56,6 @@ if check_password():
         selected_file_path = [f for f in files if os.path.basename(f) == selected_file_name][0]
         
         try:
-            # নিরাপদ উপায়ে শিটের নামগুলো আলাদাভাবে বের করার লজিক
             with st.spinner("ফাইলের শিটগুলোর নাম স্ক্যান করা হচ্ছে..."):
                 if selected_file_path.endswith('.xlsb'):
                     xl = pd.ExcelFile(selected_file_path, engine='pyxlsb')
@@ -66,7 +65,6 @@ if check_password():
             
             st.success(f"✅ ফাইলে **{len(sheet_names)}** টি শিট পাওয়া গেছে!")
             
-            # ড্রপডাউন মেনু দিয়ে শিট সিলেক্ট করার ব্যবস্থা
             selected_sheet = st.selectbox("আপনি কোন শিটের ডেটা দেখতে চান? নির্বাচন করুন:", sheet_names)
             
             st.markdown("---")
@@ -77,27 +75,36 @@ if check_password():
                 min_value=0, max_value=20, value=0
             )
             
-            # শুধুমাত্র নির্বাচিত শিটটি আলাদাভাবে লোড করা হচ্ছে (এতে এরর আসবে না)
             with st.spinner(f"{selected_sheet} শিটের ডেটা লোড হচ্ছে..."):
                 if selected_file_path.endswith('.xlsb'):
                     df = pd.read_excel(selected_file_path, engine='pyxlsb', sheet_name=selected_sheet, header=None)
                 else:
                     df = pd.read_excel(selected_file_path, sheet_name=selected_sheet, header=None)
                 
-                # ডেটা ক্লিনিং ও হেডার সেটআপ
                 df_cleaned = df.copy()
-                new_header = df_cleaned.iloc[header_row]
+                
+                # --- ম্যাজিক ট্রিক: ডুপ্লিকেট কলাম এবং ফাঁকা কলাম ফিক্স করা ---
+                raw_header = df_cleaned.iloc[header_row].fillna("Empty_Column").astype(str)
+                
+                new_header = []
+                counts = {}
+                for col in raw_header:
+                    if col in counts:
+                        counts[col] += 1
+                        new_header.append(f"{col}_{counts[col]}")
+                    else:
+                        counts[col] = 0
+                        new_header.append(col)
+                        
                 df_cleaned = df_cleaned[header_row+1:]
                 df_cleaned.columns = new_header
-                
-                # ইনডেক্স ঠিক করা
                 df_cleaned = df_cleaned.reset_index(drop=True)
                 
                 st.write("### 📋 সম্পূর্ণ ডেটা টেবিল:")
                 st.dataframe(df_cleaned, use_container_width=True)
                 
                 st.write("### 🔍 এই শিটের কলামগুলোর নাম:")
-                st.info(", ".join(str(col) for col in df_cleaned.columns.tolist() if pd.notna(col)))
+                st.info(", ".join(df_cleaned.columns.tolist()))
                 
         except Exception as e:
             st.error(f"❌ ফাইলটি পড়তে সমস্যা হয়েছে। এরর ডিটেলস: {e}")
