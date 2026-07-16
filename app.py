@@ -6,8 +6,6 @@ import glob
 
 # --- পেজ কনফিগারেশন ---
 st.set_page_config(page_title="Banglalink KPI Dashboard", page_icon="📊", layout="wide")
-
-# --- সিকিউরিটি পিন সিস্টেম ---
 SECRET_PIN = "2026"  
 
 def check_password():
@@ -30,44 +28,57 @@ def check_password():
     return True
 
 if check_password():
-    # --- মূল ড্যাশবোর্ড ইন্টারফেস ---
     st.title("📊 ডেইলি পারফরম্যান্স ড্যাশবোর্ড (Rangpur Region)")
     st.markdown("---")
     
     # আপনার গুগল ড্রাইভ ফোল্ডার লিংক
     FOLDER_URL = "https://drive.google.com/drive/folders/1LG3iyP3LUAnMXwlsh06yscJFABd-5s_n?usp=sharing"
     
-    # স্মার্ট ক্যাশিং সিস্টেম (যেন বারবার ড্রাইভ থেকে ডাউনলোড না করে এবং স্পিড ফাস্ট থাকে)
     @st.cache_data(ttl=3600)
     def load_drive_files():
         folder_name = "drive_data"
         if not os.path.exists(folder_name):
             os.makedirs(folder_name)
-            
         try:
-            # ড্রাইভ থেকে ফোল্ডার ডাউনলোড
             gdown.download_folder(FOLDER_URL, output=folder_name, quiet=True, use_cookies=False)
-            all_files = glob.glob(f"{folder_name}/*")
-            return all_files
+            return glob.glob(f"{folder_name}/*")
         except Exception as e:
             return str(e)
 
-    st.info("🔄 গুগল ড্রাইভ থেকে ডেটা সিঙ্ক হচ্ছে... (প্রথমবার ৫-১০ সেকেন্ড সময় লাগতে পারে)")
-    
-    # ডেটা কানেকশন চেক
+    @st.cache_data(ttl=3600)
+    def load_data(files):
+        df_list = []
+        for f in files:
+            if f.endswith('.xlsb'):
+                df = pd.read_excel(f, engine='pyxlsb')
+                df_list.append(df)
+            elif f.endswith('.xlsx') or f.endswith('.xls'):
+                df = pd.read_excel(f)
+                df_list.append(df)
+        if df_list:
+            return pd.concat(df_list, ignore_index=True)
+        return pd.DataFrame()
+
     files = load_drive_files()
     
     if isinstance(files, str):
-        st.error(f"❌ ড্রাইভ কানেকশনে কোনো সমস্যা হয়েছে। এরর মেসেজ: {files}")
+        st.error(f"❌ ড্রাইভ কানেকশনে সমস্যা: {files}")
     elif len(files) == 0:
-        st.warning("⚠️ আপনার গুগল ড্রাইভ ফোল্ডারটি খালি! দয়া করে কিছু এক্সেল রিপোর্ট আপলোড করুন।")
+        st.warning("⚠️ গুগল ড্রাইভ ফোল্ডারটি খালি!")
     else:
-        st.success(f"✅ কানেকশন ১০০% সফল! গুগল ড্রাইভ থেকে {len(files)} টি রিপোর্ট ফাইল পাওয়া গেছে:")
+        st.success(f"✅ ড্রাইভ থেকে {len(files)} টি ফাইল সিঙ্ক হয়েছে।")
         
-        # ফোল্ডারের ফাইলের নামগুলো দেখাচ্ছে
-        for f in files:
-            file_name = os.path.basename(f)
-            st.write(f"📄 **{file_name}**")
+        with st.spinner("ডেটা প্রসেস করা হচ্ছে (কয়েক সেকেন্ড সময় লাগতে পারে)..."):
+            df = load_data(files)
             
-        st.markdown("---")
-        st.success("🎉 পার্ট ২ কমপ্লিট! এখন শুধু গ্রস অ্যাক্টিভেশন এবং C2C ডেটা অ্যানালাইসিসের পালা।")
+        if not df.empty:
+            st.write("### 📋 আপনার এক্সেল রিপোর্টের প্রিভিউ (প্রথম ৫টি সারি):")
+            st.dataframe(df.head())
+            
+            st.write("### 🔍 রিপোর্টের কলামগুলোর নাম:")
+            st.info(", ".join(df.columns.tolist()))
+            
+            st.markdown("---")
+            st.success("🎉 অসাধারণ! ডেটা সফলভাবে পড়া গেছে। এখন আমরা এই কলামগুলোর ওপর ভিত্তি করে গ্রাফ এবং এআই (AI) চ্যাটবট যুক্ত করব।")
+        else:
+            st.error("ফাইলগুলো থেকে কোনো ডেটা পড়া যায়নি।")
