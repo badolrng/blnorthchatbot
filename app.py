@@ -31,7 +31,6 @@ if check_password():
     st.title("📊 ডেইলি পারফরম্যান্স ড্যাশবোর্ড (Rangpur Region)")
     st.markdown("---")
     
-    # আপনার গুগল ড্রাইভ ফোল্ডার লিংক
     FOLDER_URL = "https://drive.google.com/drive/folders/1LG3iyP3LUAnMXwlsh06yscJFABd-5s_n?usp=sharing"
     
     @st.cache_data(ttl=3600)
@@ -45,20 +44,6 @@ if check_password():
         except Exception as e:
             return str(e)
 
-    @st.cache_data(ttl=3600)
-    def load_data(files):
-        df_list = []
-        for f in files:
-            if f.endswith('.xlsb'):
-                df = pd.read_excel(f, engine='pyxlsb')
-                df_list.append(df)
-            elif f.endswith('.xlsx') or f.endswith('.xls'):
-                df = pd.read_excel(f)
-                df_list.append(df)
-        if df_list:
-            return pd.concat(df_list, ignore_index=True)
-        return pd.DataFrame()
-
     files = load_drive_files()
     
     if isinstance(files, str):
@@ -68,17 +53,41 @@ if check_password():
     else:
         st.success(f"✅ ড্রাইভ থেকে {len(files)} টি ফাইল সিঙ্ক হয়েছে।")
         
-        with st.spinner("ডেটা প্রসেস করা হচ্ছে (কয়েক সেকেন্ড সময় লাগতে পারে)..."):
-            df = load_data(files)
+        # ফাইল সিলেক্ট করার অপশন
+        file_names = [os.path.basename(f) for f in files]
+        selected_file_name = st.selectbox("📁 চেক করার জন্য যেকোনো একটি ফাইল নির্বাচন করুন:", file_names)
+        
+        selected_file_path = [f for f in files if os.path.basename(f) == selected_file_name][0]
+        
+        try:
+            # ফাইলের সব শিট পড়ার লজিক
+            if selected_file_path.endswith('.xlsb'):
+                excel_data = pd.read_excel(selected_file_path, engine='pyxlsb', sheet_name=None)
+            else:
+                excel_data = pd.read_excel(selected_file_path, sheet_name=None)
             
-        if not df.empty:
-            st.write("### 📋 আপনার এক্সেল রিপোর্টের প্রিভিউ (প্রথম ৫টি সারি):")
-            st.dataframe(df.head())
+            sheet_names = list(excel_data.keys())
+            st.info(f"📑 এই ফোল্ডারে **{len(sheet_names)}** টি শিট পাওয়া গেছে।")
             
-            st.write("### 🔍 রিপোর্টের কলামগুলোর নাম:")
-            st.info(", ".join(df.columns.tolist()))
+            # শিট সিলেক্ট করার ড্রপডাউন
+            selected_sheet = st.selectbox("আপনি কোন শিটটি দেখতে চান?", sheet_names)
             
+            # কলামের নাম ঠিক করার জন্য উপরের ফাঁকা লাইন বাদ দেওয়ার অপশন
             st.markdown("---")
-            st.success("🎉 অসাধারণ! ডেটা সফলভাবে পড়া গেছে। এখন আমরা এই কলামগুলোর ওপর ভিত্তি করে গ্রাফ এবং এআই (AI) চ্যাটবট যুক্ত করব।")
-        else:
-            st.error("ফাইলগুলো থেকে কোনো ডেটা পড়া যায়নি।")
+            st.write("### ⚙️ কলাম সেটিং (Header Fixer)")
+            header_row = st.number_input("উপর থেকে কত নম্বর লাইনটি আপনার মূল কলামের হেডার? (সাধারণত corporate রিপোর্টে ১, ২ বা ৩ নম্বর লাইনে থাকে। নাম্বার বাড়িয়ে-কমিয়ে চেক করুন)", min_value=0, max_value=20, value=0)
+            
+            # ফাইনাল ডেটা লোড
+            if selected_file_path.endswith('.xlsb'):
+                df = pd.read_excel(selected_file_path, engine='pyxlsb', sheet_name=selected_sheet, header=header_row)
+            else:
+                df = pd.read_excel(selected_file_path, sheet_name=selected_sheet, header=header_row)
+            
+            st.write("### 📋 ডেটা প্রিভিউ:")
+            st.dataframe(df.head(10))
+            
+            st.write("### 🔍 কলামগুলোর বর্তমান নাম:")
+            st.success(", ".join(str(col) for col in df.columns.tolist()))
+            
+        except Exception as e:
+            st.error(f"ফাইল পড়ার সময় এরর হয়েছে: {e}")
