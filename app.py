@@ -27,6 +27,59 @@ def check_password():
         return False
     return True
 
+# --- স্মার্ট অটো-ক্লিনার ফাংশন ---
+def smart_auto_clean(file_path):
+    if file_path.endswith('.xlsb'):
+        xl = pd.ExcelFile(file_path, engine='pyxlsb')
+    else:
+        xl = pd.ExcelFile(file_path)
+        
+    best_sheet = None
+    best_df = None
+    max_data_points = 0
+
+    # সবগুলো শিট স্ক্যান করে সবচেয়ে বেশি ডেটা থাকা শিটটি বের করা
+    for sheet in xl.sheet_names:
+        if file_path.endswith('.xlsb'):
+            df_raw = pd.read_excel(file_path, engine='pyxlsb', sheet_name=sheet, header=None)
+        else:
+            df_raw = pd.read_excel(file_path, sheet_name=sheet, header=None)
+            
+        # যে লাইনে সবচেয়ে বেশি ঘর পূরণ করা আছে, সেটিকে হেডার ধরা
+        row_non_null_counts = df_raw.notna().sum(axis=1)
+        if row_non_null_counts.max() == 0: 
+            continue
+            
+        header_idx = row_non_null_counts.idxmax()
+        
+        df_cleaned = df_raw.copy()
+        raw_header = df_cleaned.iloc[header_idx].fillna("Empty_Col").astype(str)
+        
+        # ডুপ্লিকেট নাম ফিক্স করা
+        new_header = []
+        counts = {}
+        for col in raw_header:
+            if col in counts:
+                counts[col] += 1
+                new_header.append(f"{col}_{counts[col]}")
+            else:
+                counts[col] = 0
+                new_header.append(col)
+                
+        df_cleaned = df_cleaned[header_idx+1:].reset_index(drop=True)
+        df_cleaned.columns = new_header
+        
+        # সম্পূর্ণ ফাঁকা কলাম এবং সারি ডিলিট করা
+        df_cleaned = df_cleaned.dropna(how='all', axis=1).dropna(how='all', axis=0)
+        
+        data_points = df_cleaned.shape[0] * df_cleaned.shape[1]
+        if data_points > max_data_points:
+            max_data_points = data_points
+            best_df = df_cleaned
+            best_sheet = sheet
+            
+    return best_sheet, best_df
+
 if check_password():
     st.title("📊 ডিস্ট্রিবিউশন হাউস KPI ড্যাশবোর্ড (Rangpur Region)")
     st.markdown("---")
@@ -56,55 +109,29 @@ if check_password():
         selected_file_path = [f for f in files if os.path.basename(f) == selected_file_name][0]
         
         try:
-            with st.spinner("ফাইলের শিটগুলোর নাম স্ক্যান করা হচ্ছে..."):
-                if selected_file_path.endswith('.xlsb'):
-                    xl = pd.ExcelFile(selected_file_path, engine='pyxlsb')
-                else:
-                    xl = pd.ExcelFile(selected_file_path)
-                sheet_names = xl.sheet_names
+            with st.spinner("🤖 এআই আপনার ফাইল স্ক্যান করে ডেটা গুছিয়ে নিচ্ছে (Auto-Pilot Mode)..."):
+                # অটোমেটিক ডেটা ক্লিনিং 
+                best_sheet, final_df = smart_auto_clean(selected_file_path)
             
-            st.success(f"✅ ফাইলে **{len(sheet_names)}** টি শিট পাওয়া গেছে!")
+            st.success(f"✅ অটো-ডিটেকশন সফল! এআই নিজে থেকে **'{best_sheet}'** শিটটিকে মূল ডেটা হিসেবে বেছে নিয়েছে এবং হেডার ফিক্স করেছে।")
             
-            selected_sheet = st.selectbox("আপনি কোন শিটের ডেটা দেখতে চান? নির্বাচন করুন:", sheet_names)
+            # ডেটা এবং চ্যাটবট পাশাপাশি দেখানোর জন্য লেআউট
+            col1, col2 = st.columns([2, 1])
             
-            st.markdown("---")
-            st.write(f"### ⚙️ {selected_sheet} - হেডার ও ডেটা ফিক্সার")
-            
-            header_row = st.number_input(
-                "উপর থেকে কত নম্বর লাইনে আপনার মূল কলামের নামগুলো আছে? (0, 1, 2 বা 3 লিখে পরিবর্তন করে দেখুন)", 
-                min_value=0, max_value=20, value=0
-            )
-            
-            with st.spinner(f"{selected_sheet} শিটের ডেটা লোড হচ্ছে..."):
-                if selected_file_path.endswith('.xlsb'):
-                    df = pd.read_excel(selected_file_path, engine='pyxlsb', sheet_name=selected_sheet, header=None)
-                else:
-                    df = pd.read_excel(selected_file_path, sheet_name=selected_sheet, header=None)
+            with col1:
+                st.write("### 📋 আপনার অটো-ক্লিনড ডেটা:")
+                st.dataframe(final_df.head(50), use_container_width=True)
+                st.info(f"**মোট কলাম:** {len(final_df.columns)} টি | **মোট সারি (ডেটা):** {len(final_df)} টি")
                 
-                df_cleaned = df.copy()
+            with col2:
+                st.write("### 🤖 এআই চ্যাট অ্যাসিস্ট্যান্ট")
+                st.markdown("এখানে আপনি সাধারণ ভাষায় ডেটা নিয়ে প্রশ্ন করতে পারবেন।")
                 
-                # --- ম্যাজিক ট্রিক: ডুপ্লিকেট কলাম এবং ফাঁকা কলাম ফিক্স করা ---
-                raw_header = df_cleaned.iloc[header_row].fillna("Empty_Column").astype(str)
-                
-                new_header = []
-                counts = {}
-                for col in raw_header:
-                    if col in counts:
-                        counts[col] += 1
-                        new_header.append(f"{col}_{counts[col]}")
-                    else:
-                        counts[col] = 0
-                        new_header.append(col)
+                # ডেমো চ্যাট ইন্টারফেস
+                user_question = st.text_input("আপনার প্রশ্ন লিখুন (যেমন: টপ হাউস কোনটি?)")
+                if st.button("জিজ্ঞেস করুন"):
+                    if user_question:
+                        st.warning("⚠️ এআই-এর 'ব্রেন' (API Key) এখনো যুক্ত করা হয়নি। যুক্ত হলে আমি এই ডেটা থেকে সরাসরি উত্তর দিতে পারব!")
                         
-                df_cleaned = df_cleaned[header_row+1:]
-                df_cleaned.columns = new_header
-                df_cleaned = df_cleaned.reset_index(drop=True)
-                
-                st.write("### 📋 সম্পূর্ণ ডেটা টেবিল:")
-                st.dataframe(df_cleaned, use_container_width=True)
-                
-                st.write("### 🔍 এই শিটের কলামগুলোর নাম:")
-                st.info(", ".join(df_cleaned.columns.tolist()))
-                
         except Exception as e:
-            st.error(f"❌ ফাইলটি পড়তে সমস্যা হয়েছে। এরর ডিটেলস: {e}")
+            st.error(f"❌ অটো-পাইলট কাজ করতে সমস্যা হয়েছে। এরর: {e}")
