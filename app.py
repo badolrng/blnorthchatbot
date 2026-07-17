@@ -107,13 +107,13 @@ if user_input:
         Save the filtered dataframe to a variable named `result_df`.
         
         CRITICAL RULES:
-        1. String search (House/Name/Date): `df['Column Name'].astype(str).str.contains('SearchTerm', case=False, na=False)`
-        2. NUMERIC COMPARISON (CRUCIAL): If checking >=, <=, or == for numbers (like '25 transactions'), you MUST convert the column to numeric first! 
-           Example: `pd.to_numeric(df['Txn Count'], errors='coerce') >= 25`
-        3. To combine multiple conditions (Date + House + Number), wrap each condition in `()` and use `&`.
-           Example Format: `result_df = df[(df['DD Code'].astype(str).str.contains('house', na=False)) & (pd.to_numeric(df['Txn Count'], errors='coerce') >= 25)]`
-        4. Do NOT write ```python or any markdown formatting. ONLY output the raw Python code.
-        5. Do NOT explain the code.
+        1. String search: `df['Column Name'].astype(str).str.contains('SearchTerm', case=False, na=False)`
+        2. SMART DATE HANDLING: If the user asks for a date conversationally (like '12th july'), mentally translate it to standard Excel formats (like '12-Jul' or '12/07') before searching in the code.
+           Example: `df['Date Column'].astype(str).str.contains('12.*Jul|12/07', case=False, regex=True, na=False)`
+        3. NUMERIC COMPARISON (CRUCIAL): Always convert to numeric first: `pd.to_numeric(df['Txn Count'], errors='coerce') >= 25`
+        4. Combine multiple conditions with `&` and wrap each in `()`.
+        5. Do NOT write ```python or any markdown formatting. ONLY output the raw Python code.
+        6. Do NOT explain the code.
         """
         
         try:
