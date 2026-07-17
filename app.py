@@ -31,22 +31,6 @@ except Exception as e:
     st.error(f"⚠️ Security or API Error! Check Streamlit Secrets. Details: {e}")
     st.stop()
 
-# --- AI Knowledge Base (Dictionary) ---
-kpi_dictionary = """
-Data Dictionary:
-- National: Full Bangladesh
-- Cluster: Total Regions Data (5 Clusters)
-- Region: Region of the cluster
-- DD or DH Name: Distribution House Name
-- RSO Code: Unique Code of Every Field Force
-- BP Code: Brand Promoter Code
-- C2C: RSO to Retailer Transaction and Amount
-- GA: Gross Add / SIM Activations
-- Txn Count: Transaction Count
-- CARE | CONNECT | CONVERT: Key Performance Indicators
-- Is C2C TGT meet?: 25 Transaction Done in a day or not
-"""
-
 # --- Phase 2: Automated Drive Engine ---
 @st.cache_data(ttl=3600)
 def fetch_data_from_drive(folder_id):
@@ -110,11 +94,10 @@ if user_input:
     if df is None:
         st.warning("⚠️ Waiting for data to sync before analyzing.")
     else:
-        # We only send column names to the AI to save tokens and speed up the process (0% chance of 429 Error)
         columns_list = list(df.columns)
         
         system_prompt = f"""You are an elite Python Data Analyst for the telecommunications sector.
-        A Pandas DataFrame named `df` is loaded in memory with {len(df)} rows.
+        A Pandas DataFrame named `df` is loaded in memory.
         Exact Columns available: {columns_list}
         
         User asks: "{user_input}"
@@ -123,12 +106,14 @@ if user_input:
         Write EXACTLY ONE line of Python code using Pandas to filter `df` based on the user's question.
         Save the filtered dataframe to a variable named `result_df`.
         
-        Critical Rules:
-        1. Use robust string searching: `df['Column Name'].astype(str).str.contains('SearchTerm', case=False, na=False)`
-        2. Do NOT write ```python or any markdown formatting. ONLY output the raw Python code.
-        3. Do NOT explain the code.
-        4. If the user mentions "25 transaction", they mean `Txn Count` >= 25 (or similar column based on context).
-        5. If the user mentions "rajnil06", search in `DD or DH Name` or similar.
+        CRITICAL RULES:
+        1. String search (House/Name/Date): `df['Column Name'].astype(str).str.contains('SearchTerm', case=False, na=False)`
+        2. NUMERIC COMPARISON (CRUCIAL): If checking >=, <=, or == for numbers (like '25 transactions'), you MUST convert the column to numeric first! 
+           Example: `pd.to_numeric(df['Txn Count'], errors='coerce') >= 25`
+        3. To combine multiple conditions (Date + House + Number), wrap each condition in `()` and use `&`.
+           Example Format: `result_df = df[(df['DD Code'].astype(str).str.contains('house', na=False)) & (pd.to_numeric(df['Txn Count'], errors='coerce') >= 25)]`
+        4. Do NOT write ```python or any markdown formatting. ONLY output the raw Python code.
+        5. Do NOT explain the code.
         """
         
         try:
@@ -136,7 +121,6 @@ if user_input:
                 response = model.generate_content(system_prompt)
                 ai_code = response.text.strip().replace("```python", "").replace("```", "").strip()
                 
-                # Executing the AI-generated python code securely to filter the 4000+ rows instantly
                 local_vars = {'df': df, 'pd': pd}
                 try:
                     exec(ai_code, globals(), local_vars)
@@ -147,7 +131,6 @@ if user_input:
                         st.code(ai_code, language="python")
                     
                     if not result_df.empty:
-                        # Showing the result as a beautiful, scrollable native Streamlit table
                         st.dataframe(result_df) 
                     else:
                         st.warning("No data found matching your exact criteria. Please check spelling or date format.")
