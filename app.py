@@ -17,8 +17,8 @@ try:
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=GEMINI_API_KEY)
     
-    # Switching to gemini-1.5-flash for massive 1500 daily requests limit (No more 429 Quota Errors!)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    # Switching to gemini-2.5-flash (Supported by your API key and has high limits!)
+    model = genai.GenerativeModel('gemini-2.5-flash')
     
     gcp_credentials = dict(st.secrets["google_service_account"])
     credentials = service_account.Credentials.from_service_account_info(
@@ -133,8 +133,7 @@ user_input = st.chat_input("Ask AI (e.g., আমি জানতে চাই RA
 if user_input:
     st.write(f"**You:** {user_input}")
     
-    # STEP 1: Pure Python Text Filtering (Saves API Quota and increases speed)
-    # Extract English alphanumeric words from the prompt (like rajnil06) to filter exactly those rows
+    # Text Filtering to speed up AI & avoid hitting Quota limits
     english_keywords = re.findall(r'[a-zA-Z0-9]{4,}', user_input.lower())
     
     row_strings = df.astype(str).apply(lambda x: ' '.join(x).lower(), axis=1)
@@ -146,14 +145,14 @@ if user_input:
             filtered_df = pd.concat([filtered_df, matched])
             
     if filtered_df.empty:
-        filtered_df = df.head(300) # Fallback if only Bengali is used
+        filtered_df = df.head(300) 
     else:
         filtered_df = filtered_df.drop_duplicates()
         
     data_text = filtered_df.to_csv(index=False)
     
-    # STEP 2: The "Human Brain" Extraction Prompt
-    system_prompt = f"""You are a highly intelligent corporate data analyst. 
+    # The "Human Brain" Extraction Prompt
+    system_prompt = f"""You are an elite corporate data analyst. 
     Read the following messy CSV data perfectly.
     
     User Request (Bengali/English): "{user_input}"
@@ -162,8 +161,8 @@ if user_input:
     {data_text}
     
     CRITICAL INSTRUCTION:
-    1. Understand the user's exact criteria (e.g., specific house, minimum 1 SIM/transaction, date).
-    2. Be careful with dates (they might be written as 15-Jul, 15/07, or Excel format).
+    1. Understand the user's exact criteria. If they ask for 'মিনিমাম ১ টা সিম করেছে' (minimum 1 SIM), look at Gross Add (GA) or SIM Activation columns and find values >= 1.
+    2. Be careful with dates (they might be written as 15-Jul, 15/07, etc.).
     3. Output YOUR ENTIRE RESPONSE as a STRICT, VALID JSON array of objects. 
     4. NO extra text, NO markdown, NO explanations. 
     5. Format strictly like this:
@@ -191,4 +190,4 @@ if user_input:
                 st.write(raw_json)
                 
     except Exception as e:
-        st.error(f"❌ AI Quota/API Error: {e}")
+        st.error(f"❌ AI API Error: {e}")
