@@ -1,5 +1,7 @@
 streamlit
 pandas
 pyxlsb
+openpyxl
 google-generativeai
-gdown
+google-api-python-client
+google-auth
