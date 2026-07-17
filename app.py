@@ -17,25 +17,9 @@ try:
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=GEMINI_API_KEY)
     
-    # 🚀 THE ULTIMATE FIX: AUTO-DETECT SUPPORTED MODELS 🚀
-    # Instead of guessing the model name, we dynamically check which models your API Key actually supports!
-    valid_models = [m.name.replace("models/", "") for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-    
-    if not valid_models:
-        st.error("⚠️ Your API Key does not have access to any working text generation models.")
-        st.stop()
-        
-    # We prioritize the most stable, high-limit model available for your specific key
-    target_model = valid_models[0] 
-    for name in valid_models:
-        if '1.5-flash' in name:
-            target_model = name
-            break
-        elif '1.0-pro' in name or 'gemini-pro' in name:
-            target_model = name
-            
-    # Load the dynamically selected model
-    model = genai.GenerativeModel(target_model)
+    # 🚀 THE FINAL FIX: HARDCODING THE HIGH-LIMIT WORKHORSE 🚀
+    # We strictly lock the engine to 1.5-flash to avoid Google's "limit: 0" Pro models
+    model = genai.GenerativeModel('gemini-1.5-flash')
     
     # --- Drive Setup ---
     gcp_credentials = dict(st.secrets["google_service_account"])
@@ -139,8 +123,7 @@ with st.spinner("🤖 System syncing with Google Drive..."):
     df, file_name = fetch_data_from_drive(FOLDER_ID)
 
 if df is not None:
-    # Showing which model was auto-selected so you know it's working properly!
-    st.success(f"✅ Data Synced! System auto-connected to highly stable engine: `{target_model}`")
+    st.success(f"✅ Data Synced! High-Speed Engine Active: `gemini-1.5-flash`")
 else:
     st.error("❌ Sync Failed.")
     st.stop()
