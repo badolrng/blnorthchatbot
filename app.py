@@ -16,8 +16,9 @@ st.set_page_config(page_title="KPI Dashboard - Rangpur", page_icon="📊", layou
 try:
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=GEMINI_API_KEY)
-    # Using the most powerful reasoning model
-    model = genai.GenerativeModel('gemini-3.5-flash')
+    
+    # Switching to gemini-1.5-flash for massive 1500 daily requests limit (No more 429 Quota Errors!)
+    model = genai.GenerativeModel('gemini-1.5-flash')
     
     gcp_credentials = dict(st.secrets["google_service_account"])
     credentials = service_account.Credentials.from_service_account_info(
@@ -67,7 +68,6 @@ def fetch_data_from_drive(folder_id):
             excel_data = pd.read_excel(downloaded, sheet_name=None)
             df = pd.concat(excel_data.values(), ignore_index=True)
             
-        # Human-Brain Cleaning: Convert everything to string and replace NaN for perfect AI reading
         df = df.fillna("")
         df.columns = df.columns.astype(str).str.strip()
         return df, file_name
@@ -80,7 +80,6 @@ def generate_kpi_image(data_list, title_text):
         st.warning("No data found to generate an image.")
         return
         
-    # Corporate Telecom Theme Colors (Orange, Dark Navy, White)
     bg_color = "#0B192C"
     header_color = "#FF6500"
     text_color = "#FFFFFF"
@@ -90,20 +89,17 @@ def generate_kpi_image(data_list, title_text):
     ax.set_facecolor(bg_color)
     ax.axis('off')
     
-    # Title
     plt.text(0.5, 0.95, title_text.upper(), fontsize=16, color=header_color, 
              fontweight='bold', ha='center', va='center', transform=ax.transAxes)
     plt.text(0.5, 0.90, "CARE | CONNECT | CONVERT", fontsize=10, color="#AAAAAA", 
              ha='center', va='center', transform=ax.transAxes)
     
-    # Table Headers
     y_pos = 0.80
     plt.text(0.1, y_pos, "RSO / FIELD FORCE", fontsize=12, color=header_color, fontweight='bold', transform=ax.transAxes)
-    plt.text(0.8, y_pos, "TRANSACTIONS", fontsize=12, color=header_color, fontweight='bold', ha='center', transform=ax.transAxes)
+    plt.text(0.8, y_pos, "ACHIEVEMENT", fontsize=12, color=header_color, fontweight='bold', ha='center', transform=ax.transAxes)
     
     plt.plot([0.05, 0.95], [y_pos-0.03, y_pos-0.03], color=header_color, lw=2, transform=ax.transAxes)
     
-    # Data Rows
     y_pos -= 0.1
     for item in data_list:
         rso_name = str(item.get("rso", "Unknown"))
@@ -132,52 +128,53 @@ else:
 
 st.markdown("---")
 
-user_input = st.chat_input("Ask AI (e.g., I want to see the RSO of rajnil06 who did 25 transaction on 12th july)...")
+user_input = st.chat_input("Ask AI (e.g., আমি জানতে চাই RAJNIL06 এর কত জন RSO গত ১৫ তারিখ...)...")
 
 if user_input:
     st.write(f"**You:** {user_input}")
     
-    # STEP 1: Fuzzy search to reduce 4000 rows to a small, readable chunk for the AI
-    search_keywords = ['rajnil', 'jul', '12', '25', 'c2c', 'ga'] # Basic generic filters
+    # STEP 1: Pure Python Text Filtering (Saves API Quota and increases speed)
+    # Extract English alphanumeric words from the prompt (like rajnil06) to filter exactly those rows
+    english_keywords = re.findall(r'[a-zA-Z0-9]{4,}', user_input.lower())
     
-    # Convert whole row to a single searchable text string
     row_strings = df.astype(str).apply(lambda x: ' '.join(x).lower(), axis=1)
+    filtered_df = pd.DataFrame()
     
-    # Find rows that might contain the user's requested house or date (loose human-like filtering)
-    # We ask AI to generate the specific search keyword first to be smart
-    keyword_prompt = f"Extract ONLY the distribution house name (if any) from this query: '{user_input}'. Output only the word, nothing else. If none, output 'NONE'."
-    house_keyword = model.generate_content(keyword_prompt).text.strip().lower()
-    
-    if house_keyword != 'none' and house_keyword != '':
-        filtered_df = df[row_strings.str.contains(house_keyword, regex=False)]
+    if english_keywords:
+        for kw in english_keywords:
+            matched = df[row_strings.str.contains(kw, regex=False)]
+            filtered_df = pd.concat([filtered_df, matched])
+            
+    if filtered_df.empty:
+        filtered_df = df.head(300) # Fallback if only Bengali is used
     else:
-        filtered_df = df.head(200) # Fallback to top rows
+        filtered_df = filtered_df.drop_duplicates()
         
-    # We take the relevant chunk of data as pure text (The way humans read)
     data_text = filtered_df.to_csv(index=False)
     
-    # STEP 2: The "Human Brain" Prompt
+    # STEP 2: The "Human Brain" Extraction Prompt
     system_prompt = f"""You are a highly intelligent corporate data analyst. 
-    Read the following messy CSV data text like a human reading a piece of paper.
+    Read the following messy CSV data perfectly.
     
-    User Request: "{user_input}"
+    User Request (Bengali/English): "{user_input}"
     
-    CSV Data Chunk (Filtered for relevance):
+    CSV Data Chunk:
     {data_text}
     
     CRITICAL INSTRUCTION:
-    Find the exact rows matching the user's request. Pay close attention to dates (they might be written as 12-Jul, 12/07, or Excel numbers) and transaction columns.
-    You MUST output YOUR ENTIRE RESPONSE as a strict, valid JSON array of objects. 
-    DO NOT output any extra text, markdown, or explanations. 
-    Format:
+    1. Understand the user's exact criteria (e.g., specific house, minimum 1 SIM/transaction, date).
+    2. Be careful with dates (they might be written as 15-Jul, 15/07, or Excel format).
+    3. Output YOUR ENTIRE RESPONSE as a STRICT, VALID JSON array of objects. 
+    4. NO extra text, NO markdown, NO explanations. 
+    5. Format strictly like this:
     [
-      {{"rso": "RSO_NAME_OR_CODE_HERE", "value": "TRANSACTION_NUMBER_HERE"}}
+      {{"rso": "RSO_NAME_OR_CODE", "value": "ACHIEVEMENT_NUMBER"}}
     ]
-    If no data matches, output an empty array: []
+    If no data matches perfectly, output an empty array: []
     """
     
     try:
-        with st.spinner("🧠 AI is reading the data directly and generating your image..."):
+        with st.spinner("🧠 AI is analyzing the exact records and generating your custom Image Scorecard..."):
             response = model.generate_content(system_prompt)
             raw_json = response.text.strip().replace("```json", "").replace("```", "").strip()
             
@@ -186,13 +183,12 @@ if user_input:
                 
                 if extracted_data and len(extracted_data) > 0:
                     st.success("✅ Exact data found! Generating specific Image Format...")
-                    # STEP 3: Generate the Image Scorecard
-                    generate_kpi_image(extracted_data, f"Performance Report: {house_keyword.upper()}")
+                    generate_kpi_image(extracted_data, "Custom Performance Report")
                 else:
-                    st.warning("The AI read the specific area but found no RSOs meeting this exact criteria on that date.")
+                    st.warning("The AI scanned the area perfectly, but no RSOs matched your exact criteria.")
             except json.JSONDecodeError:
-                st.error("The AI found the data but failed to format it as an image. Here is the raw text:")
+                st.error("AI found the data but formatting failed. Raw Output:")
                 st.write(raw_json)
                 
     except Exception as e:
-        st.error(f"❌ AI Brain Error: {e}")
+        st.error(f"❌ AI Quota/API Error: {e}")
