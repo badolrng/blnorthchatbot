@@ -39,16 +39,9 @@ if user_input:
     system_prompt = "You are a highly intelligent corporate data analyst for the Rangpur Region. The user may ask questions in Bengali or English. You must reply strictly in professional English."
     
     try:
-        # Trying the most stable current model name
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # Using the latest supported high-speed model from the diagnostic list
+        model = genai.GenerativeModel('gemini-3.5-flash')
         response = model.generate_content(f"{system_prompt}\n\nUser Question: {user_input}")
         st.write(f"**AI:** {response.text}")
     except Exception as e:
         st.error(f"❌ AI Engine Error: {e}")
-        try:
-            # Diagnostic Tool: Fetching supported models for this specific API Key
-            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-            st.warning(f"🔍 System Diagnostic: Your API key supports these models: {', '.join(available_models)}")
-            st.info("Please copy the supported models list from the yellow box and share it so I can lock the correct one in!")
-        except Exception as debug_e:
-            st.error("Could not fetch model list. Please check if your API key is correct.")
