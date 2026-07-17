@@ -12,12 +12,10 @@ st.set_page_config(page_title="KPI Dashboard - Rangpur", page_icon="📊", layou
 
 # --- Load Secrets & Authenticate ---
 try:
-    # 1. Gemini AI Setup
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel('gemini-3.5-flash')
     
-    # 2. Google Drive Bot Setup
     gcp_credentials = dict(st.secrets["google_service_account"])
     credentials = service_account.Credentials.from_service_account_info(
         gcp_credentials, 
@@ -25,7 +23,6 @@ try:
     )
     drive_service = build('drive', 'v3', credentials=credentials)
     
-    # Extract Folder ID from URL
     folder_url = st.secrets.get("GOOGLE_DRIVE_FOLDER_URL", "")
     match = re.search(r'folders/([a-zA-Z0-9-_]+)', folder_url)
     FOLDER_ID = match.group(1) if match else None
@@ -40,19 +37,14 @@ Data Dictionary:
 - National: Full Bangladesh
 - Cluster: Total Regions Data (5 Clusters)
 - Region: Region of the cluster
-- DD or DH: Distribution House 
 - DD or DH Name: Distribution House Name
-- Own Team: Company Employee
-- DD or DH Code: Unique Code of Distribution House
 - RSO Code: Unique Code of Every Field Force
 - BP Code: Brand Promoter Code
 - C2C: RSO to Retailer Transaction and Amount
-- GA: Gross Add / SIM Activation
-- 1xt Txn Time: 1st Transaction time of each RSO
+- GA: Gross Add / SIM Activations
 - Txn Count: Transaction Count
-- C2C AMT: C2C Amount
+- CARE | CONNECT | CONVERT: Key Performance Indicators
 - Is C2C TGT meet?: 25 Transaction Done in a day or not
-- Daily C2C TGT: Every RSO have Daily C2C Amount Target
 """
 
 # --- Phase 2: Automated Drive Engine ---
@@ -109,7 +101,7 @@ else:
 
 st.markdown("---")
 
-# --- Phase 3: Smart AI Chatbox ---
+# --- Phase 3: Smart AI Pandas Engine ---
 user_input = st.chat_input("Ask AI (e.g., I want to see the RSO who have done 25 transaction on 12th july of rajnil06)...")
 
 if user_input:
@@ -118,32 +110,50 @@ if user_input:
     if df is None:
         st.warning("⚠️ Waiting for data to sync before analyzing.")
     else:
-        # We are now sending the ENTIRE dataset to Gemini (Removing empty spaces to save processing speed)
-        df_clean = df.fillna("")
-        full_data_csv = df_clean.to_csv(index=False)
+        # We only send column names to the AI to save tokens and speed up the process (0% chance of 429 Error)
+        columns_list = list(df.columns)
         
-        system_prompt = f"""You are an elite corporate data analyst for the Rangpur Region telecom operations. 
-        A master dataset has been loaded with {len(df)} rows.
+        system_prompt = f"""You are an elite Python Data Analyst for the telecommunications sector.
+        A Pandas DataFrame named `df` is loaded in memory with {len(df)} rows.
+        Exact Columns available: {columns_list}
         
-        The user asks: "{user_input}"
+        User asks: "{user_input}"
         
-        Context/Dictionary:
-        {kpi_dictionary}
+        Task:
+        Write EXACTLY ONE line of Python code using Pandas to filter `df` based on the user's question.
+        Save the filtered dataframe to a variable named `result_df`.
         
-        CRITICAL INSTRUCTIONS:
-        1. I am providing the ENTIRE dataset below in CSV format. 
-        2. DO NOT give the user instructions on how to filter data in Excel. YOU must perform the filtering mentally based on the CSV data provided below.
-        3. Find the exact rows matching the user's query (e.g., specific house name, 25 transactions, specific date).
-        4. Output the final result directly as a professional Markdown table containing the exact RSO Codes/Names.
-        5. If there are date anomalies (like Excel serials e.g. 46204.0), understand the context and map them correctly. Ignore messy headers like 'Unnamed', focus on the row values.
-        
-        Entire Dataset (CSV):
-        {full_data_csv}
+        Critical Rules:
+        1. Use robust string searching: `df['Column Name'].astype(str).str.contains('SearchTerm', case=False, na=False)`
+        2. Do NOT write ```python or any markdown formatting. ONLY output the raw Python code.
+        3. Do NOT explain the code.
+        4. If the user mentions "25 transaction", they mean `Txn Count` >= 25 (or similar column based on context).
+        5. If the user mentions "rajnil06", search in `DD or DH Name` or similar.
         """
         
         try:
-            with st.spinner("🧠 AI is performing a deep scan of all 4,000+ rows. This may take 3-5 seconds..."):
+            with st.spinner("🧠 AI is writing the data extraction algorithm..."):
                 response = model.generate_content(system_prompt)
-                st.write(f"**AI:**\n{response.text}")
+                ai_code = response.text.strip().replace("```python", "").replace("```", "").strip()
+                
+                # Executing the AI-generated python code securely to filter the 4000+ rows instantly
+                local_vars = {'df': df, 'pd': pd}
+                try:
+                    exec(ai_code, globals(), local_vars)
+                    result_df = local_vars.get('result_df', pd.DataFrame())
+                    
+                    st.success("✅ Data extracted successfully!")
+                    with st.expander("Show AI Logic (Python Code)"):
+                        st.code(ai_code, language="python")
+                    
+                    if not result_df.empty:
+                        # Showing the result as a beautiful, scrollable native Streamlit table
+                        st.dataframe(result_df) 
+                    else:
+                        st.warning("No data found matching your exact criteria. Please check spelling or date format.")
+                        
+                except Exception as exec_error:
+                    st.error(f"⚠️ Code Execution Error: The AI logic encountered an issue. Details: {exec_error}")
+                    
         except Exception as e:
-            st.error(f"❌ AI Engine Error: {e}")
+            st.error(f"❌ AI API Error: {e}")
