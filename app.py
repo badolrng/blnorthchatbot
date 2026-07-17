@@ -65,6 +65,9 @@ def fetch_data_from_drive(folder_id):
             excel_data = pd.read_excel(downloaded, sheet_name=None)
             df = pd.concat(excel_data.values(), ignore_index=True)
             
+        # Clean up column names to avoid hidden spaces
+        df.columns = df.columns.astype(str).str.strip()
+        
         return df, f"Successfully auto-synced `{file_name}`"
         
     except Exception as e:
@@ -95,10 +98,16 @@ if user_input:
         st.warning("⚠️ Waiting for data to sync before analyzing.")
     else:
         columns_list = list(df.columns)
+        # Providing a 5-row sample to the AI so it visually sees the exact data types and formats (costs very few tokens)
+        data_sample = df.head(5).to_csv(index=False)
         
         system_prompt = f"""You are an elite Python Data Analyst for the telecommunications sector.
         A Pandas DataFrame named `df` is loaded in memory.
+        
         Exact Columns available: {columns_list}
+        
+        Data Sample (First 5 Rows):
+        {data_sample}
         
         User asks: "{user_input}"
         
@@ -107,9 +116,8 @@ if user_input:
         Save the filtered dataframe to a variable named `result_df`.
         
         CRITICAL RULES:
-        1. String search: `df['Column Name'].astype(str).str.contains('SearchTerm', case=False, na=False)`
-        2. SMART DATE HANDLING: If the user asks for a date conversationally (like '12th july'), mentally translate it to standard Excel formats (like '12-Jul' or '12/07') before searching in the code.
-           Example: `df['Date Column'].astype(str).str.contains('12.*Jul|12/07', case=False, regex=True, na=False)`
+        1. Look at the Data Sample to see exactly how DATES are formatted (e.g., 'YYYY-MM-DD HH:MM:SS', 'YYYY-MM-DD', or Excel serial floats like '46204.0'). If the user asks for '12th July' but the sample shows dates as '2026-07-12', your regex MUST search for '2026-07-12' or '2026-07-12.*'.
+        2. String search: `df['Column Name'].astype(str).str.contains('SearchTerm', case=False, regex=True, na=False)`
         3. NUMERIC COMPARISON (CRUCIAL): Always convert to numeric first: `pd.to_numeric(df['Txn Count'], errors='coerce') >= 25`
         4. Combine multiple conditions with `&` and wrap each in `()`.
         5. Do NOT write ```python or any markdown formatting. ONLY output the raw Python code.
@@ -117,7 +125,7 @@ if user_input:
         """
         
         try:
-            with st.spinner("🧠 AI is writing the data extraction algorithm..."):
+            with st.spinner("🧠 AI is analyzing data formats and writing the extraction algorithm..."):
                 response = model.generate_content(system_prompt)
                 ai_code = response.text.strip().replace("```python", "").replace("```", "").strip()
                 
@@ -133,10 +141,12 @@ if user_input:
                     if not result_df.empty:
                         st.dataframe(result_df) 
                     else:
-                        st.warning("No data found matching your exact criteria. Please check spelling or date format.")
+                        st.warning("No data found matching your exact criteria. The AI applied the logic correctly, but no rows matched all conditions.")
                         
                 except Exception as exec_error:
                     st.error(f"⚠️ Code Execution Error: The AI logic encountered an issue. Details: {exec_error}")
+                    with st.expander("Show Problematic AI Logic"):
+                        st.code(ai_code, language="python")
                     
         except Exception as e:
             st.error(f"❌ AI API Error: {e}")
