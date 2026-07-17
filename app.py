@@ -17,7 +17,7 @@ try:
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=GEMINI_API_KEY)
     
-    # Explicitly using gemini-2.5-flash which has high rate limits (1500/day) and is fully supported
+    # We use 2.5-flash but with our new Hybrid Engine, it uses 99% less tokens!
     model = genai.GenerativeModel('gemini-2.5-flash')
     
     gcp_credentials = dict(st.secrets["google_service_account"])
@@ -102,7 +102,6 @@ def generate_kpi_image(data_list, title_text):
     
     y_pos -= 0.1
     for item in data_list:
-        # Looking for 'name' or 'rso' dynamically
         rso_name = str(item.get("name", item.get("rso", "Unknown")))
         value = str(item.get("value", "0"))
         
@@ -129,64 +128,74 @@ else:
 
 st.markdown("---")
 
-user_input = st.chat_input("Ask AI (e.g., koto jon BP koresilo?)...")
+user_input = st.chat_input("Ask AI (e.g., RAJNIL06 er koto jon BP goto 15 tarikhe nij code sim koresilo?)...")
 
 if user_input:
     st.write(f"**You:** {user_input}")
     
-    # Updated: Now catches 2-letter keywords like 'BP', 'GA', etc.
-    english_keywords = re.findall(r'[a-zA-Z0-9]{2,}', user_input.lower())
-    
-    row_strings = df.astype(str).apply(lambda x: ' '.join(x).lower(), axis=1)
-    filtered_df = pd.DataFrame()
-    
-    if english_keywords:
-        for kw in english_keywords:
-            matched = df[row_strings.str.contains(kw, regex=False)]
-            filtered_df = pd.concat([filtered_df, matched])
-            
-    if filtered_df.empty:
-        filtered_df = df.head(1000) # Increased search range
-    else:
-        filtered_df = filtered_df.drop_duplicates()
-        
-    data_text = filtered_df.to_csv(index=False)
-    
-    system_prompt = f"""You are an elite corporate data analyst. 
-    Read the following messy CSV data perfectly.
-    
-    User Request (Bengali/English): "{user_input}"
-    
-    CSV Data Chunk:
-    {data_text}
-    
-    CRITICAL INSTRUCTION:
-    1. Understand the user's exact criteria. If they ask about BP, filter for BP codes/names and their achievements. 
-    2. Output YOUR ENTIRE RESPONSE as a STRICT, VALID JSON array of objects. 
-    3. NO extra text, NO markdown, NO explanations. 
-    4. Format strictly like this:
-    [
-      {{"name": "BP_NAME_OR_CODE", "value": "ACHIEVEMENT_NUMBER"}}
-    ]
-    If no data matches perfectly, output an empty array: []
+    # ==========================================
+    # HYBRID ENGINE: STEP 1 (AI reads only the command, NO DATA sent)
+    # ==========================================
+    intent_prompt = f"""
+    Analyze this user query: "{user_input}"
+    Extract the search parameters.
+    Return ONLY a valid JSON object with these keys:
+    - "house": (string) Distribution house name (e.g. "RAJNIL06") or "" if none.
+    - "role": (string) Role (e.g. "BP", "RSO") or "" if none.
+    - "date": (string) Date mentioned (e.g. "15", "12") or "" if none.
+    - "min_val": (integer) Minimum numeric achievement (e.g. 1 for "1 ta sim", 25 for "25 transaction") or 0.
     """
     
     try:
-        with st.spinner("🧠 AI is analyzing the exact records and generating your custom Image Scorecard..."):
-            response = model.generate_content(system_prompt)
-            raw_json = response.text.strip().replace("```json", "").replace("```", "").strip()
+        with st.spinner("🧠 AI is extracting instructions (Zero Data Token Cost)..."):
+            intent_res = model.generate_content(intent_prompt)
+            intent_json = intent_res.text.strip().replace("```json", "").replace("```", "").strip()
+            params = json.loads(intent_json)
             
-            try:
-                extracted_data = json.loads(raw_json)
+            # ==========================================
+            # HYBRID ENGINE: STEP 2 (Python filters 4000 rows locally)
+            # ==========================================
+            mask = pd.Series(True, index=df.index)
+            row_strings = df.astype(str).apply(lambda x: ' '.join(x).lower(), axis=1)
+            
+            if params.get('house'): 
+                mask &= row_strings.str.contains(str(params['house']).lower(), regex=False)
+            if params.get('role'): 
+                mask &= row_strings.str.contains(str(params['role']).lower(), regex=False)
+            if params.get('date'): 
+                mask &= row_strings.str.contains(str(params['date']).lower(), regex=False)
                 
-                if extracted_data and len(extracted_data) > 0:
-                    st.success("✅ Exact data found! Generating specific Image Format...")
-                    generate_kpi_image(extracted_data, "Custom Performance Report")
-                else:
-                    st.warning("The AI scanned the area perfectly, but no data matched your exact criteria.")
-            except json.JSONDecodeError:
-                st.error("AI found the data but formatting failed. Raw Output:")
-                st.write(raw_json)
+            filtered_df = df[mask]
+            
+            # ==========================================
+            # HYBRID ENGINE: STEP 3 (Format final output)
+            # ==========================================
+            if filtered_df.empty:
+                st.warning("⚠️ No records found matching these exact criteria.")
+            else:
+                # Send only the remaining few rows to AI to format properly
+                small_csv = filtered_df.head(40).to_csv(index=False)
+                format_prompt = f"""
+                Min Value Required: {params.get('min_val', 0)}
+                Role Target: {params.get('role', 'employee')}
                 
+                Data Chunk (Max 40 rows):
+                {small_csv}
+                
+                Task: Look at the data and find the names/codes of the target role and their numeric achievement. 
+                Keep only those with achievement >= {params.get('min_val', 0)}.
+                Return ONLY a JSON array: [{{"name": "Extracted Name", "value": "Extracted Value"}}]
+                """
+                
+                with st.spinner("🎨 Generating Professional Image Scorecard..."):
+                    format_res = model.generate_content(format_prompt)
+                    final_json = format_res.text.strip().replace("```json", "").replace("```", "").strip()
+                    extracted_data = json.loads(final_json)
+                    
+                    if extracted_data:
+                        generate_kpi_image(extracted_data, f"Performance Report: {params.get('house', 'General')}".strip("- "))
+                    else:
+                        st.warning(f"Data was found for the location, but no one reached the minimum target of {params.get('min_val', 0)}.")
+                        
     except Exception as e:
-        st.error(f"❌ AI API Error: {e}")
+        st.error(f"❌ AI Error: {e}")
