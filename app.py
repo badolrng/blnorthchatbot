@@ -8,7 +8,7 @@ import re
 import matplotlib.pyplot as plt
 
 # --- Page Configuration ---
-st.set_page_config(page_title="KPI Dashboard - Rangpur", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Performance Dashboard", page_icon="📊", layout="wide")
 
 # --- Smart Excel Date Converter ---
 def convert_excel_dates(val):
@@ -16,10 +16,9 @@ def convert_excel_dates(val):
         return ""
     try:
         f = float(val)
-        # Excel serial dates for years ~2020-2030 are in the 44000-48000 range
         if 44000 < f < 48000: 
             dt = pd.to_datetime('1899-12-30') + pd.to_timedelta(f, unit='D')
-            return dt.strftime("%d-%b").lower() # e.g., '12-jul'
+            return dt.strftime("%d-%b").lower() 
     except:
         pass
     
@@ -72,16 +71,16 @@ def fetch_data_from_drive(folder_url, gcp_credentials_info):
             df = pd.concat(excel_data.values(), ignore_index=True)
             
         if df.empty:
-            return None, "Excel file is completely empty."
+            return None, "Excel file is empty."
 
-        # 1. Promote Header safely (Fixes crash if rows are less than 5)
+        # Promote Header Safely
         for i in range(min(5, len(df))):
-            if df.iloc[i].astype(str).str.contains('Name|ID|RSO|Code|BP|House|Ga|C2C|Transactions', case=False).any():
+            if df.iloc[i].astype(str).str.contains('name|id|rso|code|bp|house|ga|c2c', case=False).any():
                 df.columns = df.iloc[i]
                 df = df[i+1:].reset_index(drop=True)
                 break
         
-        # 2. Universal Data & Date Conversion
+        # Standardize Columns
         new_cols = []
         for c in df.columns:
             val_str = str(c).strip().lower()
@@ -90,7 +89,7 @@ def fetch_data_from_drive(folder_url, gcp_credentials_info):
             else:
                 new_cols.append(convert_excel_dates(c))
                 
-        # Handle duplicate column names safely (Fixes Pandas crash)
+        # Fix Duplicate Columns
         seen = set()
         deduped_cols = []
         for c in new_cols:
@@ -106,17 +105,16 @@ def fetch_data_from_drive(folder_url, gcp_credentials_info):
                 
         df.columns = deduped_cols
         
-        # Convert all inside cells to date format if they are numbers
+        # Standardize cell values
         for col in df.columns:
             df[col] = df[col].apply(convert_excel_dates)
             
         return df, file_name
     except Exception as e:
-        # Now it will show EXACTLY why it failed!
-        return None, f"Code Crash Details: {str(e)}"
+        return None, f"Drive Error: {str(e)}"
 
-# --- Local English NLP Engine ---
-def nlp_engine_english(user_text):
+# --- Local Pure English NLP Engine ---
+def extract_english_filters(user_text):
     text = user_text.lower()
     params = {"location": "", "role": "", "date": "", "min_val": 0}
     
@@ -124,7 +122,7 @@ def nlp_engine_english(user_text):
     if re.search(r'\bbp\b', text): params["role"] = "bp"
     elif re.search(r'\brso\b', text): params["role"] = "rso"
         
-    # 2. Detect Standard English Date
+    # 2. Detect Date (e.g. 15th july, july 15)
     date_match = re.search(r'\b(\d{1,2})(?:st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b', text)
     if not date_match:
         date_match = re.search(r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{1,2})\b', text)
@@ -134,18 +132,15 @@ def nlp_engine_english(user_text):
         params["date"] = f"{date_match.group(1)}-{date_match.group(2)[:3]}"
         
     # 3. Detect Minimum Target
-    if "sim korse" in text or "sim koresilo" in text:
-        params["min_val"] = 1
-    
-    val_match = re.search(r'\b(\d+)\s*(sims?|transactions?|txns?|activations?|ga|sales?)\b', text)
+    val_match = re.search(r'\b(\d+)\s*(sims?|transactions?|txns?|activations?|ga|sales?|c2c)\b', text)
     if val_match:
         params["min_val"] = int(val_match.group(1))
 
-    # 4. Detect Location
-    months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec", "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"]
+    # 4. Detect Location (Filtering out common English words)
+    months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec", "january", "february", "march", "april", "june", "july", "august", "september", "october", "november", "december"]
     kpi_keywords = ["sims", "transaction", "transactions", "sim", "ga", "c2c", "ac", "sales", "revenue", "activations", "activation"]
     role_keywords = ["rso", "bp", "field", "force", "employee"]
-    stop_words = ["show", "me", "the", "who", "did", "on", "in", "of", "how", "many", "region", "house", "for", "with", "minimum", "and", "or", "to", "a", "goto"] + months + kpi_keywords + role_keywords
+    stop_words = ["show", "me", "the", "who", "did", "on", "in", "of", "how", "many", "region", "house", "for", "with", "minimum", "and", "or", "to", "a", "find", "get", "list"] + months + kpi_keywords + role_keywords
     
     words = re.findall(r'\b[a-z0-9]+\b', text)
     for w in words:
@@ -155,12 +150,8 @@ def nlp_engine_english(user_text):
             
     return params
 
-# --- Custom Image Report Generator ---
+# --- Professional Custom Infographic Generator ---
 def generate_kpi_image(data_list, title_text):
-    if not data_list:
-        st.warning("⚠️ No records found matching these exact criteria.")
-        return
-        
     bg_color = "#0B192C"
     header_color = "#FF6500"
     text_color = "#FFFFFF"
@@ -170,12 +161,14 @@ def generate_kpi_image(data_list, title_text):
     ax.set_facecolor(bg_color)
     ax.axis('off')
     
+    # Title & Corporate Header
     plt.text(0.5, 0.95, title_text.upper(), fontsize=16, color=header_color, 
              fontweight='bold', ha='center', va='center', transform=ax.transAxes)
              
     plt.text(0.5, 0.90, "CARE | CONNECT | CONVERT", fontsize=10, color="#AAAAAA", 
              ha='center', va='center', transform=ax.transAxes)
     
+    # Column Headers
     y_pos = 0.80
     plt.text(0.1, y_pos, "NAME / ID", fontsize=12, color=header_color, fontweight='bold', transform=ax.transAxes)
     plt.text(0.8, y_pos, "ACHIEVEMENT", fontsize=12, color=header_color, fontweight='bold', ha='center', transform=ax.transAxes)
@@ -196,7 +189,7 @@ def generate_kpi_image(data_list, title_text):
     st.pyplot(fig)
 
 # --- Main Dashboard UI ---
-st.title("🚀 Local English Chatbot (Zero Limits)")
+st.title("🚀 Local Master Engine (English Only)")
 st.markdown("---")
 
 try:
@@ -206,35 +199,36 @@ except:
     st.error("Secrets configuration missing!")
     st.stop()
 
-with st.spinner("🤖 System syncing & translating messy dates..."):
+with st.spinner("🤖 System syncing & structuring data locally..."):
     df, status_msg = fetch_data_from_drive(folder_url, gcp_creds)
 
 if df is not None:
-    st.success(f"✅ Data Synced & Standardized! Your 100% Local English System is Active.")
+    st.success(f"✅ Data Synced & Standardized! Local engine is ready for English commands.")
 else:
-    # 🔴 THIS WILL NOW SHOW THE EXACT ERROR INSTEAD OF JUST "SYNC FAILED" 🔴
     st.error(f"❌ Sync Failed. Error Details: {status_msg}") 
     st.stop()
 
 st.markdown("---")
 
-user_input = st.chat_input("Ask System (e.g., Show me the RSO of RAJNIL06 who did 25 transactions on 12th July)...")
+user_input = st.chat_input("Ask (e.g., Show me the RSO of RAJNIL06 who did 25 transactions on 12th July)...")
 
 if user_input:
     st.write(f"**You:** {user_input}")
     
-    with st.spinner("🧠 Local Engine is analyzing your English command..."):
-        params = nlp_engine_english(user_input)
+    with st.spinner("🧠 Scanning command and processing data..."):
+        params = extract_english_filters(user_input)
         extracted_data = []
         
         if df is not None and not df.empty:
             for index, row in df.iterrows():
                 row_str = " ".join(row.astype(str)).lower()
                 
+                # Check Location & Role matches
                 loc_match = params['location'] in row_str if params['location'] else True
                 role_match = params['role'] in row_str if params['role'] else True
                 
                 if loc_match and role_match:
+                    # Extract Name/Code dynamically
                     rso_name = "Unknown"
                     for col in df.columns:
                         if any(k in str(col).lower() for k in ['name', 'id', 'rso', 'code', 'bp']):
@@ -246,6 +240,7 @@ if user_input:
                     achievement_val = -1
                     date_cols_wide = [c for c in df.columns if re.search(r'\d{1,2}-[a-z]{3}', str(c).lower())]
                     
+                    # Target Extraction Logic
                     if params['date'] and params['date'] in date_cols_wide:
                         for col in df.columns:
                             if params['date'] in str(col).lower():
@@ -274,8 +269,8 @@ if user_input:
                         extracted_data.append({"name": rso_name, "value": val_display})
         
         if extracted_data:
-            report_title = f"Performance Report: {params.get('location', 'Overview').upper()}"
-            st.success(f"🎯 Decoded locally: Location=[{params['location'].upper()}], Role=[{params['role'].upper()}], Date=[{params['date']}], Min Target=[{params['min_val']}]")
+            report_title = f"Report: {params.get('location', 'Overview').upper()}"
+            st.success(f"🎯 Command Decoded: Location=[{params['location'].upper()}], Role=[{params['role'].upper()}], Date=[{params['date']}], Min Target=[{params['min_val']}]")
             generate_kpi_image(extracted_data[:30], report_title) 
         else:
-            st.warning(f"⚠️ Checked filters: Location=[{params['location'].upper()}], Date=[{params['date']}]. No one reached the target of {params['min_val']}.")
+            st.warning(f"⚠️ No matching records found for: Location=[{params['location'].upper()}], Date=[{params['date']}], Target=[{params['min_val']}].")
