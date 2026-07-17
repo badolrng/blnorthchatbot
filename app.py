@@ -17,8 +17,8 @@ try:
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=GEMINI_API_KEY)
     
-    # Universal alias: always picks the best available Flash model for your API key, avoiding 404 errors forever.
-    model = genai.GenerativeModel('gemini-flash-latest')
+    # Explicitly using gemini-2.5-flash which has high rate limits (1500/day) and is fully supported
+    model = genai.GenerativeModel('gemini-2.5-flash')
     
     gcp_credentials = dict(st.secrets["google_service_account"])
     credentials = service_account.Credentials.from_service_account_info(
@@ -95,17 +95,18 @@ def generate_kpi_image(data_list, title_text):
              ha='center', va='center', transform=ax.transAxes)
     
     y_pos = 0.80
-    plt.text(0.1, y_pos, "RSO / FIELD FORCE", fontsize=12, color=header_color, fontweight='bold', transform=ax.transAxes)
+    plt.text(0.1, y_pos, "NAME / ID", fontsize=12, color=header_color, fontweight='bold', transform=ax.transAxes)
     plt.text(0.8, y_pos, "ACHIEVEMENT", fontsize=12, color=header_color, fontweight='bold', ha='center', transform=ax.transAxes)
     
     plt.plot([0.05, 0.95], [y_pos-0.03, y_pos-0.03], color=header_color, lw=2, transform=ax.transAxes)
     
     y_pos -= 0.1
     for item in data_list:
-        rso_name = str(item.get("rso", "Unknown"))
+        # Looking for 'name' or 'rso' dynamically
+        rso_name = str(item.get("name", item.get("rso", "Unknown")))
         value = str(item.get("value", "0"))
         
-        plt.text(0.1, y_pos, rso_name, fontsize=12, color=text_color, transform=ax.transAxes)
+        plt.text(0.1, y_pos, rso_name[:25], fontsize=12, color=text_color, transform=ax.transAxes)
         plt.text(0.8, y_pos, value, fontsize=14, color="#00FF00", fontweight='bold', ha='center', transform=ax.transAxes)
         plt.plot([0.05, 0.95], [y_pos-0.03, y_pos-0.03], color="#1E3E62", lw=1, transform=ax.transAxes)
         y_pos -= 0.08
@@ -128,12 +129,13 @@ else:
 
 st.markdown("---")
 
-user_input = st.chat_input("Ask AI (e.g., আমি জানতে চাই RAJNIL06 এর কত জন RSO গত ১৫ তারিখ...)...")
+user_input = st.chat_input("Ask AI (e.g., koto jon BP koresilo?)...")
 
 if user_input:
     st.write(f"**You:** {user_input}")
     
-    english_keywords = re.findall(r'[a-zA-Z0-9]{4,}', user_input.lower())
+    # Updated: Now catches 2-letter keywords like 'BP', 'GA', etc.
+    english_keywords = re.findall(r'[a-zA-Z0-9]{2,}', user_input.lower())
     
     row_strings = df.astype(str).apply(lambda x: ' '.join(x).lower(), axis=1)
     filtered_df = pd.DataFrame()
@@ -144,7 +146,7 @@ if user_input:
             filtered_df = pd.concat([filtered_df, matched])
             
     if filtered_df.empty:
-        filtered_df = df.head(300) 
+        filtered_df = df.head(1000) # Increased search range
     else:
         filtered_df = filtered_df.drop_duplicates()
         
@@ -159,13 +161,12 @@ if user_input:
     {data_text}
     
     CRITICAL INSTRUCTION:
-    1. Understand the user's exact criteria. If they ask for 'মিনিমাম ১ টা সিম করেছে' (minimum 1 SIM), look at Gross Add (GA) or SIM Activation columns and find values >= 1.
-    2. Be careful with dates (they might be written as 15-Jul, 15/07, etc.).
-    3. Output YOUR ENTIRE RESPONSE as a STRICT, VALID JSON array of objects. 
-    4. NO extra text, NO markdown, NO explanations. 
-    5. Format strictly like this:
+    1. Understand the user's exact criteria. If they ask about BP, filter for BP codes/names and their achievements. 
+    2. Output YOUR ENTIRE RESPONSE as a STRICT, VALID JSON array of objects. 
+    3. NO extra text, NO markdown, NO explanations. 
+    4. Format strictly like this:
     [
-      {{"rso": "RSO_NAME_OR_CODE", "value": "ACHIEVEMENT_NUMBER"}}
+      {{"name": "BP_NAME_OR_CODE", "value": "ACHIEVEMENT_NUMBER"}}
     ]
     If no data matches perfectly, output an empty array: []
     """
@@ -182,7 +183,7 @@ if user_input:
                     st.success("✅ Exact data found! Generating specific Image Format...")
                     generate_kpi_image(extracted_data, "Custom Performance Report")
                 else:
-                    st.warning("The AI scanned the area perfectly, but no RSOs matched your exact criteria.")
+                    st.warning("The AI scanned the area perfectly, but no data matched your exact criteria.")
             except json.JSONDecodeError:
                 st.error("AI found the data but formatting failed. Raw Output:")
                 st.write(raw_json)
