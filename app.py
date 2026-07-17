@@ -56,13 +56,12 @@ Data Dictionary:
 """
 
 # --- Phase 2: Automated Drive Engine ---
-@st.cache_data(ttl=3600) # Caches data for 1 hour for extreme speed
+@st.cache_data(ttl=3600)
 def fetch_data_from_drive(folder_id):
     if not folder_id:
         return None, "Folder ID is missing or incorrect."
     
     try:
-        # Find files in the folder
         results = drive_service.files().list(
             q=f"'{folder_id}' in parents and trashed=false", 
             fields="files(id, name)"
@@ -72,7 +71,6 @@ def fetch_data_from_drive(folder_id):
         if not items:
             return None, "Folder is empty. Please upload Excel files to the connected Drive folder."
         
-        # Read the first file found (For multiple files, we can loop this later)
         file_id = items[0]['id']
         file_name = items[0]['name']
         
@@ -85,7 +83,6 @@ def fetch_data_from_drive(folder_id):
         
         downloaded.seek(0)
         
-        # Read All Sheets intelligently
         if file_name.endswith('.csv'):
             df = pd.read_csv(downloaded)
         else:
@@ -107,8 +104,6 @@ with st.spinner("🤖 Bot is scanning your Drive folder and reading all sheets..
 
 if df is not None:
     st.success(f"✅ Data Engine Active! {status_msg} (Total Rows Indexed: {len(df)})")
-    with st.expander("👀 Click to verify the data structure"):
-        st.dataframe(df.head())
 else:
     st.error(f"❌ Synchronization Failed: {status_msg}")
 
@@ -123,31 +118,31 @@ if user_input:
     if df is None:
         st.warning("⚠️ Waiting for data to sync before analyzing.")
     else:
-        # Pass data samples and columns to AI so it understands the structure perfectly
-        columns_list = ", ".join(df.columns.astype(str).tolist())
-        data_sample = df.head(30).to_csv(index=False)
+        # We are now sending the ENTIRE dataset to Gemini (Removing empty spaces to save processing speed)
+        df_clean = df.fillna("")
+        full_data_csv = df_clean.to_csv(index=False)
         
         system_prompt = f"""You are an elite corporate data analyst for the Rangpur Region telecom operations. 
-        A master dataset has been loaded from Google Drive with {len(df)} rows.
+        A master dataset has been loaded with {len(df)} rows.
         
         The user asks: "{user_input}"
         
         Context/Dictionary:
         {kpi_dictionary}
         
-        Available Columns in Dataset: 
-        {columns_list}
+        CRITICAL INSTRUCTIONS:
+        1. I am providing the ENTIRE dataset below in CSV format. 
+        2. DO NOT give the user instructions on how to filter data in Excel. YOU must perform the filtering mentally based on the CSV data provided below.
+        3. Find the exact rows matching the user's query (e.g., specific house name, 25 transactions, specific date).
+        4. Output the final result directly as a professional Markdown table containing the exact RSO Codes/Names.
+        5. If there are date anomalies (like Excel serials e.g. 46204.0), understand the context and map them correctly. Ignore messy headers like 'Unnamed', focus on the row values.
         
-        First 30 Rows of Data for Context:
-        {data_sample}
-        
-        Analyze the request precisely. Based on the columns available and the dictionary provided, answer the user's question. 
-        If the data sample does not contain the complete answer, explain clearly what logical filters the user needs to apply to the dataset (e.g., "Filter the 'DD or DH Name' column for 'rajnil06' and 'Txn Count' >= 25 on the 'Date' column").
-        Provide your response purely in professional English. Do not output generic advice.
+        Entire Dataset (CSV):
+        {full_data_csv}
         """
         
         try:
-            with st.spinner("🧠 AI is processing your request..."):
+            with st.spinner("🧠 AI is performing a deep scan of all 4,000+ rows. This may take 3-5 seconds..."):
                 response = model.generate_content(system_prompt)
                 st.write(f"**AI:**\n{response.text}")
         except Exception as e:
