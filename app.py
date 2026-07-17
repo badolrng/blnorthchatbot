@@ -6,6 +6,8 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 import io
 import re
+import json
+import matplotlib.pyplot as plt
 
 # --- Page Configuration ---
 st.set_page_config(page_title="KPI Dashboard - Rangpur", page_icon="📊", layout="wide")
@@ -14,6 +16,7 @@ st.set_page_config(page_title="KPI Dashboard - Rangpur", page_icon="📊", layou
 try:
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=GEMINI_API_KEY)
+    # Using the most powerful reasoning model
     model = genai.GenerativeModel('gemini-3.5-flash')
     
     gcp_credentials = dict(st.secrets["google_service_account"])
@@ -28,15 +31,14 @@ try:
     FOLDER_ID = match.group(1) if match else None
 
 except Exception as e:
-    st.error(f"⚠️ Security or API Error! Check Streamlit Secrets. Details: {e}")
+    st.error(f"⚠️ API Error! Check Streamlit Secrets. Details: {e}")
     st.stop()
 
-# --- Phase 2: Automated Drive Engine ---
+# --- Automated Drive Engine ---
 @st.cache_data(ttl=3600)
 def fetch_data_from_drive(folder_id):
     if not folder_id:
-        return None, "Folder ID is missing or incorrect."
-    
+        return None, "Folder ID is missing."
     try:
         results = drive_service.files().list(
             q=f"'{folder_id}' in parents and trashed=false", 
@@ -45,7 +47,7 @@ def fetch_data_from_drive(folder_id):
         items = results.get('files', [])
         
         if not items:
-            return None, "Folder is empty. Please upload Excel files to the connected Drive folder."
+            return None, "Folder is empty."
         
         file_id = items[0]['id']
         file_name = items[0]['name']
@@ -65,82 +67,132 @@ def fetch_data_from_drive(folder_id):
             excel_data = pd.read_excel(downloaded, sheet_name=None)
             df = pd.concat(excel_data.values(), ignore_index=True)
             
+        # Human-Brain Cleaning: Convert everything to string and replace NaN for perfect AI reading
+        df = df.fillna("")
         df.columns = df.columns.astype(str).str.strip()
-        return df, f"Successfully auto-synced `{file_name}`"
-        
+        return df, file_name
     except Exception as e:
-        return None, f"Drive Sync Error: {str(e)}"
+        return None, str(e)
+
+# --- Visual Image Generator (Infographic Engine) ---
+def generate_kpi_image(data_list, title_text):
+    if not data_list:
+        st.warning("No data found to generate an image.")
+        return
+        
+    # Corporate Telecom Theme Colors (Orange, Dark Navy, White)
+    bg_color = "#0B192C"
+    header_color = "#FF6500"
+    text_color = "#FFFFFF"
+    
+    fig, ax = plt.subplots(figsize=(8, max(4, len(data_list) * 0.6 + 2)))
+    fig.patch.set_facecolor(bg_color)
+    ax.set_facecolor(bg_color)
+    ax.axis('off')
+    
+    # Title
+    plt.text(0.5, 0.95, title_text.upper(), fontsize=16, color=header_color, 
+             fontweight='bold', ha='center', va='center', transform=ax.transAxes)
+    plt.text(0.5, 0.90, "CARE | CONNECT | CONVERT", fontsize=10, color="#AAAAAA", 
+             ha='center', va='center', transform=ax.transAxes)
+    
+    # Table Headers
+    y_pos = 0.80
+    plt.text(0.1, y_pos, "RSO / FIELD FORCE", fontsize=12, color=header_color, fontweight='bold', transform=ax.transAxes)
+    plt.text(0.8, y_pos, "TRANSACTIONS", fontsize=12, color=header_color, fontweight='bold', ha='center', transform=ax.transAxes)
+    
+    plt.plot([0.05, 0.95], [y_pos-0.03, y_pos-0.03], color=header_color, lw=2, transform=ax.transAxes)
+    
+    # Data Rows
+    y_pos -= 0.1
+    for item in data_list:
+        rso_name = str(item.get("rso", "Unknown"))
+        value = str(item.get("value", "0"))
+        
+        plt.text(0.1, y_pos, rso_name, fontsize=12, color=text_color, transform=ax.transAxes)
+        plt.text(0.8, y_pos, value, fontsize=14, color="#00FF00", fontweight='bold', ha='center', transform=ax.transAxes)
+        plt.plot([0.05, 0.95], [y_pos-0.03, y_pos-0.03], color="#1E3E62", lw=1, transform=ax.transAxes)
+        y_pos -= 0.08
+        
+    plt.tight_layout()
+    st.pyplot(fig)
 
 # --- Main Dashboard UI ---
-st.title("📊 Daily Performance Dashboard (Rangpur Region)")
+st.title("📊 Master AI Data Engine")
 st.markdown("---")
 
-st.subheader("⚙️ Automated Google Drive Engine")
-with st.spinner("🤖 Bot is scanning your Drive folder and reading all sheets..."):
-    df, status_msg = fetch_data_from_drive(FOLDER_ID)
+with st.spinner("🤖 System syncing with Google Drive..."):
+    df, file_name = fetch_data_from_drive(FOLDER_ID)
 
 if df is not None:
-    st.success(f"✅ Data Engine Active! {status_msg} (Total Rows Indexed: {len(df)})")
+    st.success("✅ Data Synced Successfully! The AI is ready for your commands.")
 else:
-    st.error(f"❌ Synchronization Failed: {status_msg}")
+    st.error("❌ Sync Failed.")
+    st.stop()
 
 st.markdown("---")
 
-# --- Phase 3: Smart AI Pandas Engine ---
-user_input = st.chat_input("Ask AI (e.g., I want to see the RSO who have done 25 transaction on 12th july of rajnil06)...")
+user_input = st.chat_input("Ask AI (e.g., I want to see the RSO of rajnil06 who did 25 transaction on 12th july)...")
 
 if user_input:
     st.write(f"**You:** {user_input}")
     
-    if df is None:
-        st.warning("⚠️ Waiting for data to sync before analyzing.")
+    # STEP 1: Fuzzy search to reduce 4000 rows to a small, readable chunk for the AI
+    search_keywords = ['rajnil', 'jul', '12', '25', 'c2c', 'ga'] # Basic generic filters
+    
+    # Convert whole row to a single searchable text string
+    row_strings = df.astype(str).apply(lambda x: ' '.join(x).lower(), axis=1)
+    
+    # Find rows that might contain the user's requested house or date (loose human-like filtering)
+    # We ask AI to generate the specific search keyword first to be smart
+    keyword_prompt = f"Extract ONLY the distribution house name (if any) from this query: '{user_input}'. Output only the word, nothing else. If none, output 'NONE'."
+    house_keyword = model.generate_content(keyword_prompt).text.strip().lower()
+    
+    if house_keyword != 'none' and house_keyword != '':
+        filtered_df = df[row_strings.str.contains(house_keyword, regex=False)]
     else:
-        columns_list = list(df.columns)
-        data_sample = df.head(5).to_csv(index=False)
+        filtered_df = df.head(200) # Fallback to top rows
         
-        system_prompt = f"""You are an elite Python Data Analyst for the telecommunications sector.
-        A Pandas DataFrame named `df` is loaded in memory.
-        
-        Data Sample (First 5 Rows):
-        {data_sample}
-        
-        User asks: "{user_input}"
-        
-        Task:
-        Write a Python script (multiple lines are allowed) to dynamically find the correct columns and filter `df`.
-        Store the final filtered dataframe in a variable named `result_df`.
-        
-        CRITICAL RULES:
-        1. MESSY HEADERS: Notice in the Data Sample that columns might be named 'Unnamed: X'. The REAL headers or dates might be inside row 0 or row 1. You must write code to dynamically locate the target columns based on their cell values if the header names are unclear.
-        2. DATES: If the user asks for a date (e.g., 12th July), check the sample to see if dates are formatted as text ('12-Jul'), strings, or Excel serial floats (like 46214.0). Find the column that corresponds to the requested date.
-        3. NUMERIC COMPARISON: Convert the target date column to numeric before checking >= 25: `pd.to_numeric(df[target_column], errors='coerce') >= 25`
-        4. House/RSO filtering: Find the column containing the house name (e.g., 'rajnil06') and filter it.
-        5. DO NOT write ```python or any markdown formatting. ONLY output the raw Python code. Do not explain the code.
-        """
-        
-        try:
-            with st.spinner("🧠 AI is analyzing the messy headers and writing a custom script..."):
-                response = model.generate_content(system_prompt)
-                ai_code = response.text.strip().replace("```python", "").replace("```", "").strip()
+    # We take the relevant chunk of data as pure text (The way humans read)
+    data_text = filtered_df.to_csv(index=False)
+    
+    # STEP 2: The "Human Brain" Prompt
+    system_prompt = f"""You are a highly intelligent corporate data analyst. 
+    Read the following messy CSV data text like a human reading a piece of paper.
+    
+    User Request: "{user_input}"
+    
+    CSV Data Chunk (Filtered for relevance):
+    {data_text}
+    
+    CRITICAL INSTRUCTION:
+    Find the exact rows matching the user's request. Pay close attention to dates (they might be written as 12-Jul, 12/07, or Excel numbers) and transaction columns.
+    You MUST output YOUR ENTIRE RESPONSE as a strict, valid JSON array of objects. 
+    DO NOT output any extra text, markdown, or explanations. 
+    Format:
+    [
+      {{"rso": "RSO_NAME_OR_CODE_HERE", "value": "TRANSACTION_NUMBER_HERE"}}
+    ]
+    If no data matches, output an empty array: []
+    """
+    
+    try:
+        with st.spinner("🧠 AI is reading the data directly and generating your image..."):
+            response = model.generate_content(system_prompt)
+            raw_json = response.text.strip().replace("```json", "").replace("```", "").strip()
+            
+            try:
+                extracted_data = json.loads(raw_json)
                 
-                local_vars = {'df': df, 'pd': pd}
-                try:
-                    exec(ai_code, globals(), local_vars)
-                    result_df = local_vars.get('result_df', pd.DataFrame())
-                    
-                    st.success("✅ Data extracted successfully!")
-                    with st.expander("Show AI Logic (Python Code)"):
-                        st.code(ai_code, language="python")
-                    
-                    if not result_df.empty:
-                        st.dataframe(result_df) 
-                    else:
-                        st.warning("No data found. If you are sure data exists, the target house/date might be spelled differently in the file.")
-                        
-                except Exception as exec_error:
-                    st.error(f"⚠️ Code Execution Error: The AI script failed. Details: {exec_error}")
-                    with st.expander("Show Problematic AI Script"):
-                        st.code(ai_code, language="python")
-                    
-        except Exception as e:
-            st.error(f"❌ AI API Error: {e}")
+                if extracted_data and len(extracted_data) > 0:
+                    st.success("✅ Exact data found! Generating specific Image Format...")
+                    # STEP 3: Generate the Image Scorecard
+                    generate_kpi_image(extracted_data, f"Performance Report: {house_keyword.upper()}")
+                else:
+                    st.warning("The AI read the specific area but found no RSOs meeting this exact criteria on that date.")
+            except json.JSONDecodeError:
+                st.error("The AI found the data but failed to format it as an image. Here is the raw text:")
+                st.write(raw_json)
+                
+    except Exception as e:
+        st.error(f"❌ AI Brain Error: {e}")
