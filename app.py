@@ -65,9 +65,7 @@ def fetch_data_from_drive(folder_id):
             excel_data = pd.read_excel(downloaded, sheet_name=None)
             df = pd.concat(excel_data.values(), ignore_index=True)
             
-        # Clean up column names to avoid hidden spaces
         df.columns = df.columns.astype(str).str.strip()
-        
         return df, f"Successfully auto-synced `{file_name}`"
         
     except Exception as e:
@@ -98,13 +96,10 @@ if user_input:
         st.warning("⚠️ Waiting for data to sync before analyzing.")
     else:
         columns_list = list(df.columns)
-        # Providing a 5-row sample to the AI so it visually sees the exact data types and formats (costs very few tokens)
         data_sample = df.head(5).to_csv(index=False)
         
         system_prompt = f"""You are an elite Python Data Analyst for the telecommunications sector.
         A Pandas DataFrame named `df` is loaded in memory.
-        
-        Exact Columns available: {columns_list}
         
         Data Sample (First 5 Rows):
         {data_sample}
@@ -112,20 +107,19 @@ if user_input:
         User asks: "{user_input}"
         
         Task:
-        Write EXACTLY ONE line of Python code using Pandas to filter `df` based on the user's question.
-        Save the filtered dataframe to a variable named `result_df`.
+        Write a Python script (multiple lines are allowed) to dynamically find the correct columns and filter `df`.
+        Store the final filtered dataframe in a variable named `result_df`.
         
         CRITICAL RULES:
-        1. Look at the Data Sample to see exactly how DATES are formatted (e.g., 'YYYY-MM-DD HH:MM:SS', 'YYYY-MM-DD', or Excel serial floats like '46204.0'). If the user asks for '12th July' but the sample shows dates as '2026-07-12', your regex MUST search for '2026-07-12' or '2026-07-12.*'.
-        2. String search: `df['Column Name'].astype(str).str.contains('SearchTerm', case=False, regex=True, na=False)`
-        3. NUMERIC COMPARISON (CRUCIAL): Always convert to numeric first: `pd.to_numeric(df['Txn Count'], errors='coerce') >= 25`
-        4. Combine multiple conditions with `&` and wrap each in `()`.
-        5. Do NOT write ```python or any markdown formatting. ONLY output the raw Python code.
-        6. Do NOT explain the code.
+        1. MESSY HEADERS: Notice in the Data Sample that columns might be named 'Unnamed: X'. The REAL headers or dates might be inside row 0 or row 1. You must write code to dynamically locate the target columns based on their cell values if the header names are unclear.
+        2. DATES: If the user asks for a date (e.g., 12th July), check the sample to see if dates are formatted as text ('12-Jul'), strings, or Excel serial floats (like 46214.0). Find the column that corresponds to the requested date.
+        3. NUMERIC COMPARISON: Convert the target date column to numeric before checking >= 25: `pd.to_numeric(df[target_column], errors='coerce') >= 25`
+        4. House/RSO filtering: Find the column containing the house name (e.g., 'rajnil06') and filter it.
+        5. DO NOT write ```python or any markdown formatting. ONLY output the raw Python code. Do not explain the code.
         """
         
         try:
-            with st.spinner("🧠 AI is analyzing data formats and writing the extraction algorithm..."):
+            with st.spinner("🧠 AI is analyzing the messy headers and writing a custom script..."):
                 response = model.generate_content(system_prompt)
                 ai_code = response.text.strip().replace("```python", "").replace("```", "").strip()
                 
@@ -141,11 +135,11 @@ if user_input:
                     if not result_df.empty:
                         st.dataframe(result_df) 
                     else:
-                        st.warning("No data found matching your exact criteria. The AI applied the logic correctly, but no rows matched all conditions.")
+                        st.warning("No data found. If you are sure data exists, the target house/date might be spelled differently in the file.")
                         
                 except Exception as exec_error:
-                    st.error(f"⚠️ Code Execution Error: The AI logic encountered an issue. Details: {exec_error}")
-                    with st.expander("Show Problematic AI Logic"):
+                    st.error(f"⚠️ Code Execution Error: The AI script failed. Details: {exec_error}")
+                    with st.expander("Show Problematic AI Script"):
                         st.code(ai_code, language="python")
                     
         except Exception as e:
