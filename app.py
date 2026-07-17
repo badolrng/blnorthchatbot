@@ -21,12 +21,12 @@ except Exception as e:
 st.title("📊 Daily Performance Dashboard (Rangpur Region)")
 st.markdown("---")
 
-st.success("✅ System framework and Gemini AI connections are officially ACTIVE!")
+st.success("✅ System framework and Google Drive connections are officially ACTIVE!")
 st.info(f"📂 Scanning connected Google Drive Folder: `{DRIVE_FOLDER_URL}`")
 
 # --- Phase 2: Data Engine Status ---
 st.subheader("⚙️ Data Processing Engine")
-st.write("The dynamic Excel scanning engine is initialized to read complicated corporate files (e.g., C2C Productivity, Gross Activations).")
+st.write("The dynamic Excel scanning engine is initialized to read complicated corporate files.")
 st.write("⏳ Waiting for the AI Knowledge Base (Short Codes Dictionary) to activate the deep sheet-by-sheet scanning...")
 
 st.markdown("---")
@@ -36,12 +36,19 @@ user_input = st.chat_input("Ask AI (e.g., Hello, are you ready?)...")
 if user_input:
     st.write(f"**You:** {user_input}")
     
-    # AI Processing
+    system_prompt = "You are a highly intelligent corporate data analyst for the Rangpur Region. The user may ask questions in Bengali or English. You must reply strictly in professional English."
+    
+    # Smart Fallback Engine
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        system_prompt = "You are a highly intelligent corporate data analyst for the Rangpur Region. The user may ask questions in Bengali or English. You must reply strictly in professional English."
-        
-        response = model.generate_content(f"{system_prompt}\n\nUser Question: {user_input}")
-        st.write(f"**AI:** {response.text}")
+        try:
+            # Tries the latest flash model first
+            model = genai.GenerativeModel('gemini-1.5-flash-latest')
+            response = model.generate_content(f"{system_prompt}\n\nUser Question: {user_input}")
+            st.write(f"**AI:** {response.text}")
+        except:
+            # Fallback to standard pro if flash is locked
+            model = genai.GenerativeModel('gemini-pro')
+            response = model.generate_content(f"{system_prompt}\n\nUser Question: {user_input}")
+            st.write(f"**AI:** {response.text}")
     except Exception as e:
         st.error(f"AI Engine Error: {e}")
