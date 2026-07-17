@@ -17,9 +17,27 @@ try:
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=GEMINI_API_KEY)
     
-    # We use 2.5-flash but with our new Hybrid Engine, it uses 99% less tokens!
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    # 🚀 THE ULTIMATE FIX: AUTO-DETECT SUPPORTED MODELS 🚀
+    # Instead of guessing the model name, we dynamically check which models your API Key actually supports!
+    valid_models = [m.name.replace("models/", "") for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
     
+    if not valid_models:
+        st.error("⚠️ Your API Key does not have access to any working text generation models.")
+        st.stop()
+        
+    # We prioritize the most stable, high-limit model available for your specific key
+    target_model = valid_models[0] 
+    for name in valid_models:
+        if '1.5-flash' in name:
+            target_model = name
+            break
+        elif '1.0-pro' in name or 'gemini-pro' in name:
+            target_model = name
+            
+    # Load the dynamically selected model
+    model = genai.GenerativeModel(target_model)
+    
+    # --- Drive Setup ---
     gcp_credentials = dict(st.secrets["google_service_account"])
     credentials = service_account.Credentials.from_service_account_info(
         gcp_credentials, 
@@ -121,39 +139,40 @@ with st.spinner("🤖 System syncing with Google Drive..."):
     df, file_name = fetch_data_from_drive(FOLDER_ID)
 
 if df is not None:
-    st.success("✅ Data Synced Successfully! The AI is ready for your commands.")
+    # Showing which model was auto-selected so you know it's working properly!
+    st.success(f"✅ Data Synced! System auto-connected to highly stable engine: `{target_model}`")
 else:
     st.error("❌ Sync Failed.")
     st.stop()
 
 st.markdown("---")
 
-user_input = st.chat_input("Ask AI (e.g., RAJNIL06 er koto jon BP goto 15 tarikhe nij code sim koresilo?)...")
+user_input = st.chat_input("Ask AI (e.g., goto 15 tarikhe Rangpur region ar koto jon RSO nijer code sim korse?)...")
 
 if user_input:
     st.write(f"**You:** {user_input}")
     
     # ==========================================
-    # HYBRID ENGINE: STEP 1 (AI reads only the command, NO DATA sent)
+    # HYBRID ENGINE: STEP 1 (AI reads only the command)
     # ==========================================
     intent_prompt = f"""
     Analyze this user query: "{user_input}"
     Extract the search parameters.
     Return ONLY a valid JSON object with these keys:
-    - "house": (string) Distribution house name (e.g. "RAJNIL06") or "" if none.
+    - "house": (string) Location or house (e.g. "Rangpur", "RAJNIL06") or "" if none.
     - "role": (string) Role (e.g. "BP", "RSO") or "" if none.
     - "date": (string) Date mentioned (e.g. "15", "12") or "" if none.
-    - "min_val": (integer) Minimum numeric achievement (e.g. 1 for "1 ta sim", 25 for "25 transaction") or 0.
+    - "min_val": (integer) Minimum numeric achievement (e.g. 1 for "sim korse", 25 for "25 transaction") or 0.
     """
     
     try:
-        with st.spinner("🧠 AI is extracting instructions (Zero Data Token Cost)..."):
+        with st.spinner("🧠 Analyzing parameters..."):
             intent_res = model.generate_content(intent_prompt)
             intent_json = intent_res.text.strip().replace("```json", "").replace("```", "").strip()
             params = json.loads(intent_json)
             
             # ==========================================
-            # HYBRID ENGINE: STEP 2 (Python filters 4000 rows locally)
+            # HYBRID ENGINE: STEP 2 (Python locally filters the huge data)
             # ==========================================
             mask = pd.Series(True, index=df.index)
             row_strings = df.astype(str).apply(lambda x: ' '.join(x).lower(), axis=1)
@@ -168,23 +187,20 @@ if user_input:
             filtered_df = df[mask]
             
             # ==========================================
-            # HYBRID ENGINE: STEP 3 (Format final output)
+            # HYBRID ENGINE: STEP 3 (AI formats the final output for Image)
             # ==========================================
             if filtered_df.empty:
-                st.warning("⚠️ No records found matching these exact criteria.")
+                st.warning("⚠️ No records found matching these exact criteria in the Excel file.")
             else:
-                # Send only the remaining few rows to AI to format properly
                 small_csv = filtered_df.head(40).to_csv(index=False)
                 format_prompt = f"""
-                Min Value Required: {params.get('min_val', 0)}
-                Role Target: {params.get('role', 'employee')}
-                
                 Data Chunk (Max 40 rows):
                 {small_csv}
                 
-                Task: Look at the data and find the names/codes of the target role and their numeric achievement. 
+                Task: Look at the data and find the names/codes of the target role ({params.get('role', 'employee')}) and their numeric achievement (like SIMs or C2C). 
                 Keep only those with achievement >= {params.get('min_val', 0)}.
                 Return ONLY a JSON array: [{{"name": "Extracted Name", "value": "Extracted Value"}}]
+                If no rows match, return []
                 """
                 
                 with st.spinner("🎨 Generating Professional Image Scorecard..."):
@@ -193,9 +209,10 @@ if user_input:
                     extracted_data = json.loads(final_json)
                     
                     if extracted_data:
-                        generate_kpi_image(extracted_data, f"Performance Report: {params.get('house', 'General')}".strip("- "))
+                        report_title = f"Performance Report: {params.get('house', 'General')}".strip("- ")
+                        generate_kpi_image(extracted_data, report_title)
                     else:
-                        st.warning(f"Data was found for the location, but no one reached the minimum target of {params.get('min_val', 0)}.")
+                        st.warning(f"Data was found for the location, but no one reached the target of {params.get('min_val', 0)}.")
                         
     except Exception as e:
-        st.error(f"❌ AI Error: {e}")
+        st.error(f"❌ System Error: {e}")
