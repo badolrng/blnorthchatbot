@@ -17,8 +17,8 @@ try:
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=GEMINI_API_KEY)
     
-    # Switching to gemini-2.5-flash (Supported by your API key and has high limits!)
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    # Universal alias: always picks the best available Flash model for your API key, avoiding 404 errors forever.
+    model = genai.GenerativeModel('gemini-flash-latest')
     
     gcp_credentials = dict(st.secrets["google_service_account"])
     credentials = service_account.Credentials.from_service_account_info(
@@ -133,7 +133,6 @@ user_input = st.chat_input("Ask AI (e.g., আমি জানতে চাই RA
 if user_input:
     st.write(f"**You:** {user_input}")
     
-    # Text Filtering to speed up AI & avoid hitting Quota limits
     english_keywords = re.findall(r'[a-zA-Z0-9]{4,}', user_input.lower())
     
     row_strings = df.astype(str).apply(lambda x: ' '.join(x).lower(), axis=1)
@@ -151,7 +150,6 @@ if user_input:
         
     data_text = filtered_df.to_csv(index=False)
     
-    # The "Human Brain" Extraction Prompt
     system_prompt = f"""You are an elite corporate data analyst. 
     Read the following messy CSV data perfectly.
     
